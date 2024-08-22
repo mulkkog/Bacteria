@@ -14,7 +14,7 @@ from PIL import Image
 
 # GPU 설정
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ['CUDA_VISIBLE_DEVICES'] = "1 "
+os.environ['CUDA_VISIBLE_DEVICES'] = "0"
  
 def process_images(structure, img_roi, num_classes):
     X_data = []
@@ -313,18 +313,26 @@ def main(args):
         'Cut-off 10^2 CFU/ml': [],
         'Frame F1 Score': [],
         'Video F1 Score': [],
-        'Row Weighted Scores': [],  # Changed this to store row-wise weighted scores
-        'Row Total Weighted Scores': []  # Changed this to store row-wise total weighted scores
+        'Row Weighted Scores': [],
+        'Row Total Weighted Scores': []
     }
 
-    # Initialize matrices for cumulative confusion matrix accumulation
     cumulative_frame_conf_matrix = np.zeros((args.num_classes, args.num_classes))
     cumulative_video_conf_matrix = np.zeros((args.num_classes, args.num_classes))
-    no_stable_segments_videos_all_folds = []  # List for videos with no stable segments
+    no_stable_segments_videos_all_folds = []
 
     for fold_index, (train_index, test_index) in enumerate(kf.split(date_folders)):
-        model_path = os.path.join(args.models_dir, f"Fold_{fold_index + 1}_HTCNN.h5")
+        model_path = os.path.join(args.models_dir, f"Fold_{fold_index + 1}_model.h5")
         model = load_model(model_path)
+        
+        # Calculate and print the number of trainable parameters
+        trainable_params = model.count_params()
+        print(f"Fold {fold_index + 1}: Number of trainable parameters: {trainable_params}")
+        
+        # Calculate the model size in MB
+        model_size = os.path.getsize(model_path) / (1024 * 1024)  # Convert bytes to MB
+        print(f"Fold {fold_index + 1}: Model size: {model_size:.2f} MB")
+        
         test_folder = [date_folders[test_index[0]]]
         test_structure, no_stable_segments_videos = get_temporary_structure_with_stable_segments(
             args.base_path, test_folder, args.subfolders, args.stability_threshold, args.buffer_size
@@ -351,7 +359,6 @@ def main(args):
         no_stable_segments_videos_all_folds[-1][1].extend(additional_no_stable_segments_videos)
         video_accuracy = np.trace(video_conf_matrix) / np.sum(video_conf_matrix) if np.sum(video_conf_matrix) else 0
 
-        # Print evaluation results
         print(f"Evaluating Fold {fold_index + 1}: test {test_folder}")
         print(f"Frame Confusion Matrix for Fold {fold_index + 1}:\n{frame_conf_matrix}")
         print(f"Frame Accuracy for Fold {fold_index + 1}: {frame_accuracy * 100:.2f}%\n")
@@ -373,7 +380,6 @@ def main(args):
         train_folders = [date_folders[i] for i in train_index]
         test_folder_name = date_folders[test_index[0]]
 
-        # Record fold data
         fold_data = {
             'Fold': fold_index + 1,
             'Train Folders': ', '.join(train_folders),
@@ -384,16 +390,15 @@ def main(args):
             'Video Accuracy': video_accuracy,
             'Frame F1 Score': frame_f1_scores,
             'Video F1 Score': video_f1_scores,
-            'Row Weighted Scores': [list(ws) for ws in row_weighted_scores],  # Record each row's weighted scores
-            'Row Total Weighted Scores': row_total_weighted_scores  # Record each row's total weighted scores
+            'Row Weighted Scores': [list(ws) for ws in row_weighted_scores],
+            'Row Total Weighted Scores': row_total_weighted_scores
         }
         if len(args.subfolders) == 5:
             fold_data['Cut-off 10^2 CFU/ml'] = accuracy_cutoff_revised
 
-        fold_data_df = pd.DataFrame([fold_data])  # Convert fold data to DataFrame
+        fold_data_df = pd.DataFrame([fold_data])
         results = pd.concat([results, fold_data_df], ignore_index=True)
         
-        # Append individual results to summary
         results_summary['Frame Accuracy'].append(frame_accuracy)
         results_summary['Video Accuracy'].append(video_accuracy)
         results_summary['Frame F1 Score'].append(frame_f1_scores)
@@ -513,9 +518,9 @@ def main(args):
                 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Script to train and evaluate a convolutional neural network on image data.")
-    parser.add_argument('--base_path', type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case1', help='Base directory for the dataset.')
-    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240802_case1_tf', help='Directory where models are saved.')
-    parser.add_argument('--excel_dir', type=str, default='/home/jijang/projects/Bacteria/excel/case_test/240820_case1_tf',  help='Directory where excels are saved.')
+    parser.add_argument('--base_path', type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case16', help='Base directory for the dataset.')
+    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240822_case16_tf', help='Directory where models are saved.')
+    parser.add_argument('--excel_dir', type=str, default='/home/jijang/projects/Bacteria/excel/case_test/240822_case16_tf',  help='Directory where excels are saved.')
     parser.add_argument('--subfolders', type=str, nargs='+', default=['0', '1', '2', '3'], help='Subfolders to include as classes.')
     parser.add_argument('--num_classes', type=int, default=5, help='Number of classes to predict.')
     parser.add_argument('--img_frame', type=int, default=900, help='Frame size of the images.')

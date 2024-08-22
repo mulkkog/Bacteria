@@ -10,7 +10,7 @@ from PIL import Image
 
 # GPU 설정
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ['CUDA_VISIBLE_DEVICES'] = "7"
+os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 
 import torch
 import torch.nn as nn
@@ -189,7 +189,7 @@ class torchLoader(Dataset):
 
     def __getitem__(self, idx):
         return {
-            "input": self.X[idx].unsqueeze(1),
+            "input": self.X[idx],
             "target": self.y[idx]
         }
 
@@ -198,6 +198,28 @@ def make_data_loader(X, y, batch_size, tag=''):
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True if tag == 'train' else False, num_workers=4)
     return loader
 
+class EarlyStopping:
+    def __init__(self, patience=5, verbose=False, delta=0):
+        self.patience = patience
+        self.verbose = verbose
+        self.delta = delta
+        self.best_score = None
+        self.epochs_no_improve = 0
+        self.early_stop = False
+
+    def __call__(self, val_loss):
+        score = -val_loss
+        if self.best_score is None:
+            self.best_score = score
+        elif score < self.best_score + self.delta:
+            self.epochs_no_improve += 1
+            if self.epochs_no_improve >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.epochs_no_improve = 0
+        if self.early_stop and self.verbose:
+            print("조기 종료: 검증 손실이 개선되지 않았습니다.")
 
 def main(args):
     os.makedirs(args.models_dir, exist_ok=True)
@@ -216,6 +238,7 @@ def main(args):
 
     accuracy_results = []
 
+    
     # 교차 검증
     for fold_index, (train_index, val_index) in enumerate(kf.split(date_folders)):
         train_folders = [date_folders[i] for i in train_index]
@@ -239,6 +262,8 @@ def main(args):
         model = create_model(args.num_classes).to(device)
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
         criterion = nn.CrossEntropyLoss()
+
+        early_stopper = EarlyStopping(patience=5, verbose=True) if args.early_stop else None
 
         for epoch in range(args.epochs):
             model.train()
@@ -284,6 +309,12 @@ def main(args):
                     total_val += target_val.size(0)
                     correct_val += (predicted_val == target_val_class).sum().item()
 
+            if early_stopper:
+                early_stopper(val_loss / len(val_loader))
+                if early_stopper.early_stop:
+                    print(f"Epoch {epoch}: 조기 종료됨")
+                    break
+
             val_accuracy = 100 * correct_val / total_val
             
             print(f'Epoch[{epoch}]-- Train Loss : {running_loss / len(train_loader):.5f}, Val Loss : {val_loss / len(val_loader):.5f}, Train Accuracy: {train_accuracy:.2f}%, Val Accuracy: {val_accuracy:.2f}%')
@@ -298,8 +329,8 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Training Configuration")
-    parser.add_argument('--data_path',  type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case4', help='Base path for dataset')
-    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240820_case4_torch_vivit', help='Directory to save models')
+    parser.add_argument('--data_path',  type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case16', help='Base path for dataset')
+    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240822_case16_torch_early_stop', help='Directory to save models')
     parser.add_argument('--subfolders', nargs='+', default=['0', '1', '2', '3'], help='List of subfolders for classes')   
     parser.add_argument('--num_classes', type=int, default=5, help='Number of classes')
     parser.add_argument('--img_frame', type=int, default=900, help='Number of image frames')
@@ -310,6 +341,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--equal', action='store_false', help='Apply histogram equalization')
-
+    parser.add_argument('--early_stop', action='store_false', help='Enable early stopping based on validation loss')
+    
     args = parser.parse_args()
     main(args)

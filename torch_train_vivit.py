@@ -281,6 +281,28 @@ def make_data_loader(X, y, batch_size, tag=''):
     return loader
 
 
+class EarlyStopping:
+    def __init__(self, patience=5, verbose=False, delta=0):
+        self.patience = patience
+        self.verbose = verbose
+        self.delta = delta
+        self.best_score = None
+        self.epochs_no_improve = 0
+        self.early_stop = False
+
+    def __call__(self, val_loss):
+        score = -val_loss
+        if self.best_score is None:
+            self.best_score = score
+        elif score < self.best_score + self.delta:
+            self.epochs_no_improve += 1
+            if self.epochs_no_improve >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.epochs_no_improve = 0
+        if self.early_stop and self.verbose:
+            print("조기 종료: 검증 손실이 개선되지 않았습니다.")
 
 def main(args):
     os.makedirs(args.models_dir, exist_ok=True)
@@ -322,6 +344,8 @@ def main(args):
         model = create_model(args.img_roi, args.patch_size, args.num_classes, 1).to(device)
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
         criterion = nn.CrossEntropyLoss()
+
+        early_stopper = EarlyStopping(patience=5, verbose=True) if args.early_stop else None
 
         for epoch in range(args.epochs):
             model.train()
@@ -367,6 +391,12 @@ def main(args):
                     total_val += target_val.size(0)
                     correct_val += (predicted_val == target_val_class).sum().item()
 
+            if early_stopper:
+                early_stopper(val_loss / len(val_loader))
+                if early_stopper.early_stop:
+                    print(f"Epoch {epoch}: 조기 종료됨")
+                    break
+
             val_accuracy = 100 * correct_val / total_val
 
             print(f'Epoch[{epoch}]-- Train Loss : {running_loss / len(train_loader):.5f}, Val Loss : {val_loss / len(val_loader):.5f}, Train Accuracy: {train_accuracy:.2f}%, Val Accuracy: {val_accuracy:.2f}%')
@@ -379,11 +409,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Training Configuration")
-    parser.add_argument('--data_path',  type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case1', help='Base path for dataset')
-    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240820_case1_torch_vivit', help='Directory to save models')
+    parser.add_argument('--data_path',  type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case16', help='Base path for dataset')
+    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240822_case16_torch_vivit_early_stop', help='Directory to save models')
     parser.add_argument('--subfolders', nargs='+', default=['0', '1', '2', '3'], help='List of subfolders for classes')   
     parser.add_argument('--num_classes', type=int, default=5, help='Number of classes')
-    parser.add_argument('--img_frame', type=int, default=900, help='Number of image frames')
+    parser.add_argument('--img_frame', type=int, default=300, help='Number of image frames')
     parser.add_argument('--img_roi', type=int, default=96, help='Image region of interest size')
     parser.add_argument('--stability_threshold', type=int, default=350, help='Stability threshold for segment detection')
     parser.add_argument('--buffer_size', type=int, default=2, help='Buffer size around peaks to exclude')
@@ -391,6 +421,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size') 
     parser.add_argument('--patch_size', type=int, default=16, help='Patch size')
- 
+    parser.add_argument('--early_stop', action='store_false', help='Enable early stopping based on validation loss')
+    
     args = parser.parse_args()
     main(args)

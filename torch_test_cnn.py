@@ -320,6 +320,10 @@ def calculate_cutoff_accuracy(conf_matrix):
     accuracy = total_true_positives / total_samples if total_samples else 0
     return accuracy
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
 def main(args):
     os.makedirs(args.excel_dir, exist_ok=True)
 
@@ -361,6 +365,14 @@ def main(args):
         model = create_model(args.num_classes).to(device)
         model_path = os.path.join(args.models_dir, f"Fold_{fold_index + 1}_HTCNN.pth")
         model.load_state_dict(torch.load(model_path))
+
+        # Calculate and print the number of trainable parameters
+        trainable_params = count_parameters(model)
+        print(f"Fold {fold_index + 1}: Number of trainable parameters: {trainable_params}")
+        
+        # Calculate the model size in MB
+        model_size = os.path.getsize(model_path) / (1024 * 1024)  # Convert bytes to MB
+        print(f"Fold {fold_index + 1}: Model size: {model_size:.2f} MB")
 
         frame_loss, frame_accuracy, frame_conf_matrix = evaluate_model(model, test_loader, device)
 
@@ -432,7 +444,7 @@ def main(args):
     total_frame_conf_matrix_df = pd.DataFrame(total_frame_conf_matrix, columns=[f"Pred_{i}" for i in range(total_frame_conf_matrix.shape[1])])
     total_frame_conf_matrix_df.index = [f"True_{i}" for i in range(total_frame_conf_matrix_df.shape[0])]
     total_video_conf_matrix_df = pd.DataFrame(total_video_conf_matrix, columns=[f"Pred_{i}" for i in range(total_video_conf_matrix.shape[1])])
-    total_video_conf_matrix_df.index = [f"True_{i}" for i in range(total_video_conf_matrix.shape[0])]
+    total_video_conf_matrix_df.index = [f"True_{i}" for i in range(total_video_conf_matrix_df.shape[0])]
 
     excel_path = os.path.join(args.excel_dir, "experiment_results.xlsx")
     results.to_excel(excel_path, index=False)
@@ -450,14 +462,11 @@ def main(args):
 
     print(f"Results and averages have been saved to {excel_path}")
 
-
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Training Configuration")
-    parser.add_argument('--data_path', type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case1', help='Base path for dataset')
-    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240820_case1_torch', help='Directory to save models')
-    parser.add_argument('--excel_dir', type=str, default='/home/jijang/projects/Bacteria/excel/case_test/240820_case1_torch', help='Directory to save excel results')
+    parser.add_argument('--data_path', type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case16', help='Base path for dataset')
+    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240822_case16_torch', help='Directory to save models')
+    parser.add_argument('--excel_dir', type=str, default='/home/jijang/projects/Bacteria/excel/case_test/240822_case16_torch', help='Directory to save excel results')
     parser.add_argument('--subfolders', nargs='+', default=['0', '1', '2', '3'], help='List of subfolders for classes')
     parser.add_argument('--num_classes', type=int, default=5, help='Number of classes')
     parser.add_argument('--img_frame', type=int, default=900, help='Number of image frames')

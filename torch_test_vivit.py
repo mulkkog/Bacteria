@@ -109,6 +109,8 @@ class ViViT(nn.Module):
 def create_model(img_roi, patch_size, num_classes, img_frame):
     return ViViT(img_roi, patch_size, num_classes, img_frame)
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def process_images(structure, img_roi, num_classes):
     X_data = []
@@ -441,6 +443,14 @@ def main(args):
         model_path = os.path.join(args.models_dir, f"Fold_{fold_index + 1}_HTCNN.pth")
         model.load_state_dict(torch.load(model_path))
 
+        # Calculate and print the number of trainable parameters
+        trainable_params = count_parameters(model)
+        print(f"Fold {fold_index + 1}: Number of trainable parameters: {trainable_params}")
+        
+        # Calculate the model size in MB
+        model_size = os.path.getsize(model_path) / (1024 * 1024)  # Convert bytes to MB
+        print(f"Fold {fold_index + 1}: Model size: {model_size:.2f} MB")
+
         frame_loss, frame_accuracy, frame_conf_matrix = evaluate_model(model, test_loader, device)
 
         video_conf_matrix, video_counters = evaluate_videos(test_structure, model, args.img_roi, args.num_classes, args.equal, args.img_frame)
@@ -534,9 +544,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Training Configuration")
-    parser.add_argument('--data_path',  type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case1', help='Base path for dataset')
-    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240820_case1_torch_vivit', help='Directory to save models')
-    parser.add_argument('--excel_dir', type=str, default='/home/jijang/projects/Bacteria/excel/case_test/case4/240820_case1_torch_vivit', help='Directory to save excel results')
+    parser.add_argument('--data_path',  type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case16', help='Base path for dataset')
+    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240822_case16_torch_vivit', help='Directory to save models')
+    parser.add_argument('--excel_dir', type=str, default='/home/jijang/projects/Bacteria/excel/case_test/240822_case16_torch_vivit', help='Directory to save excel results')
     parser.add_argument('--subfolders', nargs='+', default=['0', '1', '2', '3'], help='List of subfolders for classes')
     parser.add_argument('--num_classes', type=int, default=5, help='Number of classes')
     parser.add_argument('--img_frame', type=int, default=900, help='Number of image frames')

@@ -15,7 +15,7 @@ from PIL import Image
 
 # GPU 설정
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ['CUDA_VISIBLE_DEVICES'] = "4"
+os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 
 def set_seed(seed):
     random.seed(seed)
@@ -122,7 +122,7 @@ def process_video_files(folder_path, file_names, stability_threshold, buffer_siz
         return []
     if file_names[0].endswith('.yuv'):
         images = load_yuv_images(folder_path, file_names)
-    elif file_names[0].endsWith('.tiff'):
+    elif file_names[0].endswith('.tiff'):
         images = load_tiff_images(folder_path, file_names)
     else:
         raise ValueError("Unsupported file format")
@@ -204,11 +204,11 @@ def main(args):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Script to train and evaluate a convolutional neural network on image data.")
-    parser.add_argument('--base_path', type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case1', help='Base directory for the dataset.')
-    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240802_case1', help='Directory where models are saved.')
+    parser.add_argument('--base_path', type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case16', help='Base directory for the dataset.')
+    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240822_case16_tf_vivit', help='Directory where models are saved.')
     parser.add_argument('--subfolders', type=str, nargs='+', default=['0', '1', '2', '3'], help='Subfolders to include as classes.')
     parser.add_argument('--num_classes', type=int, default=5, help='Number of classes to predict.')
-    parser.add_argument('--img_frame', type=int, default=900, help='Frame size of the images.')
+    parser.add_argument('--img_frame', type=int, default=300, help='Frame size of the images.')
     parser.add_argument('--img_roi', type=int, default=96, help='Region of interest size for each image.')
     parser.add_argument('--stability_threshold', type=int, default=350, help='Threshold for stability in video segmentation.')
     parser.add_argument('--buffer_size', type=int, default=2, help='Buffer size around detected peaks in stability analysis.')

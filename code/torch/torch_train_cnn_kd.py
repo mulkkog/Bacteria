@@ -30,35 +30,84 @@ def set_seed(seed):
 
 set_seed(42) 
 
-class ConvNet(nn.Module):
-    def __init__(self, input_channels, num_classes): 
-        super().__init__()
-        self.conv1 = nn.Conv2d(in_channels=input_channels, out_channels=32, kernel_size=5, stride=1, padding=2)
-        self.pool = nn.AdaptiveMaxPool2d((None, None))
-        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
-        self.conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=1, stride=1, padding=0)
-        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))  # Global pooling to produce a fixed size output
-        self.fc1 = nn.Linear(64, 32)
-        self.fc2 = nn.Linear(32, num_classes)
 
+# ConvSmallNet as the student model
+class ConvSmallNet(nn.Module):
+    def __init__(self, input_channels, num_classes): 
+        super(ConvSmallNet, self).__init__()
+
+        self.conv1 = nn.Conv2d(in_channels=input_channels, out_channels=8, kernel_size=3, stride=3, padding=0)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        
+        self.conv2 = nn.Conv2d(in_channels=8, out_channels=16, kernel_size=2, stride=2, padding=0)
+        self.pool2 = nn.AdaptiveAvgPool2d((1, 1))
+        
+        self.fc1 = nn.Linear(16, 32)  # Adjust the input size accordingly
+        self.fc2 = nn.Linear(32, num_classes)
+    
     def forward(self, x):
         x = F.relu(self.conv1(x))
-        x = self.pool(x)
+        x = self.pool1(x)
         x = F.relu(self.conv2(x))
-        x = self.pool(x)
-        x = F.relu(self.conv3(x))
-        x = self.global_pool(x)
-        x = x.view(x.size(0), -1)  # Flatten the tensor
+        x = self.pool2(x)
+        
+        x = x.view(x.size(0), -1)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
 
 
-def create_model(num_classes):
+# ConvNet as the teacher model
+class ConvNet(nn.Module):
+    def __init__(self, input_channels, num_classes): 
+        super(ConvNet, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=input_channels, out_channels=32, kernel_size=5, stride=1, padding=2)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        
+        self.conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=1, stride=1, padding=0)
+        self.pool3 = nn.AdaptiveAvgPool2d((1, 1))
+        
+        self.fc1 = nn.Linear(64, 128)
+        self.fc2 = nn.Linear(128, num_classes)
+    
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = self.pool1(x)
+        x = F.relu(self.conv2(x))
+        x = self.pool2(x)
+        x = F.relu(self.conv3(x))
+        x = self.pool3(x)
+        
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+# Knowledge Distillation Loss
+class DistillationLoss(nn.Module):
+    def __init__(self, temperature=2.0, alpha=0.5):
+        super(DistillationLoss, self).__init__()
+        self.temperature = temperature
+        self.alpha = alpha
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, student_outputs, teacher_outputs, targets):
+        loss_ce = self.criterion(student_outputs, targets)
+        loss_kl = nn.KLDivLoss(reduction='batchmean')(F.log_softmax(student_outputs / self.temperature, dim=1),
+                                                      F.softmax(teacher_outputs / self.temperature, dim=1)) * (self.temperature ** 2)
+        return self.alpha * loss_ce + (1 - self.alpha) * loss_kl
+
+
+def create_teacher_model(num_classes):
     return ConvNet(1, num_classes)
 
- 
-# 이미지 파일 처리 함수
+def create_student_model(num_classes):
+    return ConvSmallNet(1, num_classes)
+
+
 def process_images(structure, img_roi, num_classes):
     X_data = []
     y_data = []
@@ -70,7 +119,7 @@ def process_images(structure, img_roi, num_classes):
                     if len(file_paths) <= 1:
                         continue
 
-                    X = get_images(file_paths)  # 이제 X는 torch.Tensor 형식입니다.
+                    X = get_images(file_paths)
 
                     for _ in range(len(file_paths) - 1):
                         y_data.append(int(subfolder))  # Assuming subfolder name is the class label
@@ -86,7 +135,6 @@ def process_images(structure, img_roi, num_classes):
     X_data = X_data[:, :, :img_roi, :img_roi]  # img_roi 크기로 자르기
 
     return X_data, y_data
-
 
 
 # 세그먼트 찾기 함수
@@ -218,130 +266,140 @@ class EarlyStopping:
         else:
             self.best_score = score
             self.epochs_no_improve = 0
-        if self.early_stop and self.verbose:
-            print("조기 종료: 검증 손실이 개선되지 않았습니다.")
+
 
 def main(args):
     os.makedirs(args.models_dir, exist_ok=True)
     print("----------------Train----------------")
-
-    # 날짜 폴더 찾기
     date_folders = [d for d in os.listdir(args.data_path) if os.path.isdir(os.path.join(args.data_path, d))]
     print(date_folders)
     print("-------------------------------------")
-
-    # 전체 데이터셋의 임시 구조 생성
     entire_structure = get_temporary_structure_with_stable_segments(
         args.data_path, date_folders, args.subfolders, args.stability_threshold, args.buffer_size)
-
     kf = KFold(n_splits=len(date_folders))
-
     accuracy_results = []
 
-    
-    # 교차 검증
     for fold_index, (train_index, val_index) in enumerate(kf.split(date_folders)):
         train_folders = [date_folders[i] for i in train_index]
         val_folder = [date_folders[val_index[0]]]
-
         print(f'Train: {train_folders}')
         print(f'Val: {val_folder}')
-
-        # Train 및 Validation 구조 생성
         train_structure = {folder: entire_structure[folder] for folder in train_folders if folder in entire_structure}
         val_structure = {folder: entire_structure[folder] for folder in val_folder if folder in entire_structure}
-     
-        X_train, y_train    = process_images(train_structure, args.img_roi, args.num_classes)
-        X_val, y_val        = process_images(val_structure, args.img_roi, args.num_classes)
-
-        # torch DataLoader : HxWx1 > 1xHxW
+        X_train, y_train = process_images(train_structure, args.img_roi, args.num_classes)
+        X_val, y_val = process_images(val_structure, args.img_roi, args.num_classes)
         train_loader = make_data_loader(X_train, y_train, args.batch_size, tag="train")
         val_loader = make_data_loader(X_val, y_val, args.batch_size)
-        
-        # torch model
-        model = create_model(args.num_classes).to(device)
-        optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
-        criterion = nn.CrossEntropyLoss()
 
-        early_stopper = EarlyStopping(patience=5, verbose=True) if args.early_stop else None
+        # Initialize models
+        teacher_model = create_teacher_model(args.num_classes).to(device)
+        student_model = create_student_model(args.num_classes).to(device)
+
+        # Construct the path for the teacher model based on the fold index
+        teacher_model_path = os.path.join(args.teacher_model_dir, f"Fold_{fold_index + 1}_HTCNN.pth")
+
+        # Load pre-trained teacher model for the current fold
+        teacher_model.load_state_dict(torch.load(teacher_model_path))
+        teacher_model.eval()  # Teacher model is fixed
+
+        optimizer = optim.Adam(student_model.parameters(), lr=args.learning_rate)
+        criterion = nn.CrossEntropyLoss()
+        distillation_criterion = DistillationLoss(temperature=args.temperature, alpha=args.alpha)
+        
+        best_val_accuracy = 0
+        epochs_no_improve = 0
 
         for epoch in range(args.epochs):
-            model.train()
+            student_model.train()
             running_loss = 0.0
             correct_train = 0
             total_train = 0
-            pbar = tqdm(train_loader, leave=False, desc='train', smoothing=0.9)
-            
-            for batch in pbar:
-                inp = batch["input"].to(device)
-                target = batch["target"].to(device)
-                output = model(inp)
-
-                loss = criterion(output, target)
-
+            for batch in tqdm(train_loader, desc='Training'):
+                inputs, targets = batch['input'].to(device), batch['target'].to(device)
                 optimizer.zero_grad()
+
+                # Forward pass
+                student_outputs = student_model(inputs)
+                with torch.no_grad():
+                    teacher_outputs = teacher_model(inputs)
+
+                # Compute distillation loss
+                loss = distillation_criterion(student_outputs, teacher_outputs, targets)
                 loss.backward()
                 optimizer.step()
 
                 running_loss += loss.item()
-                _, predicted = torch.max(output.data, 1)
-                _, target_class = torch.max(target.data, 1)
-                total_train += target.size(0)
-                correct_train += (predicted == target_class).sum().item()
-            
-            train_accuracy = 100 * correct_train / total_train
+                _, predicted = torch.max(student_outputs.data, 1)
+                _, targets_max = torch.max(targets.data, 1)
+                total_train += targets.size(0)
+                correct_train += (predicted == targets_max).sum().item()
 
-            # Validation during training
-            model.eval()
+            train_accuracy = 100.0 * correct_train / total_train
+
+            student_model.eval()
             val_loss = 0.0
             correct_val = 0
             total_val = 0
             with torch.no_grad():
-                for batch in val_loader:
-                    input_val  = batch["input"].to(device)
-                    target_val = batch["target"].to(device)
-                    output_val = model(input_val)
-
-                    loss = criterion(output_val, target_val)
+                for batch in tqdm(val_loader, desc='Validation'):
+                    inputs, targets = batch['input'].to(device), batch['target'].to(device)
+                    outputs = student_model(inputs)
+                    loss = criterion(outputs, targets)
                     val_loss += loss.item()
-                    _, predicted_val = torch.max(output_val.data, 1)
-                    _, target_val_class = torch.max(target_val.data, 1)
-                    total_val += target_val.size(0)
-                    correct_val += (predicted_val == target_val_class).sum().item()
+                    _, predicted = torch.max(outputs.data, 1)
+                    _, targets_max = torch.max(targets.data, 1)
+                    total_val += targets.size(0)
+                    correct_val += (predicted == targets_max).sum().item()
 
-            if early_stopper:
-                early_stopper(val_loss / len(val_loader))
-                if early_stopper.early_stop:
-                    print(f"Epoch {epoch}: 조기 종료됨")
-                    break
+            val_accuracy = 100.0 * correct_val / total_val
 
-            val_accuracy = 100 * correct_val / total_val
-            
-            print(f'Epoch[{epoch}]-- Train Loss : {running_loss / len(train_loader):.5f}, Val Loss : {val_loss / len(val_loader):.5f}, Train Accuracy: {train_accuracy:.2f}%, Val Accuracy: {val_accuracy:.2f}%')
+            # Update the best model if the current model is better
+            if val_accuracy > best_val_accuracy:
+                best_val_accuracy = val_accuracy
+                epochs_no_improve = 0  # reset the no improvement counter
+
+                if args.save_best:
+                    model_save_path = os.path.join(args.models_dir, f"Fold_{fold_index + 1}_HTCNN.pth")
+                    torch.save(student_model.state_dict(), model_save_path)
+                    print(f"New best model saved with validation accuracy: {best_val_accuracy:.2f}%")
+            else:
+                epochs_no_improve += 1
+                if args.early_stop:
+                    print(f"No improvement in validation accuracy for {epochs_no_improve} epochs.")
+
+            if epochs_no_improve >= args.patience and args.early_stop:
+                print("Early stopping triggered.")
+                print(f'Epoch {epoch + 1}/{args.epochs}, Train Loss: {running_loss / len(train_loader):.4f}, Train Acc: {train_accuracy:.2f}%, Val Loss: {val_loss / len(val_loader):.4f}, Val Acc: {val_accuracy:.2f}%')
+                break
+
+            print(f'Epoch {epoch + 1}/{args.epochs}, Train Loss: {running_loss / len(train_loader):.4f}, Train Acc: {train_accuracy:.2f}%, Val Loss: {val_loss / len(val_loader):.4f}, Val Acc: {val_accuracy:.2f}%')
+
+        if not args.save_best: 
             model_save_path = os.path.join(args.models_dir, f"Fold_{fold_index + 1}_HTCNN.pth")
-            torch.save(model.state_dict(), model_save_path)
-            print()
-            
+            torch.save(student_model.state_dict(), model_save_path)
+            print(f"Last model saved with validation accuracy: {val_accuracy:.2f}%")
+
         accuracy_results.append((train_accuracy, val_accuracy))
 
-
-
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Training Configuration")
+    parser = argparse.ArgumentParser(description="Training Configuration with Knowledge Distillation")
     parser.add_argument('--data_path',  type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case16', help='Base path for dataset')
-    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240822_case16_torch_early_stop', help='Directory to save models')
-    parser.add_argument('--subfolders', nargs='+', default=['0', '1', '2', '3'], help='List of subfolders for classes')   
+    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240901_case16_torch_cnn_early_stop_best_kd', help='Directory to save models')
+    parser.add_argument('--teacher_model_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240901_case16_torch_cnn_early_stop_best', help='Directory containing teacher models')
+    parser.add_argument('--subfolders', nargs='+', default=['0', '1', '2', '3', '4'], help='List of subfolders for classes')
     parser.add_argument('--num_classes', type=int, default=5, help='Number of classes')
     parser.add_argument('--img_frame', type=int, default=900, help='Number of image frames')
     parser.add_argument('--img_roi', type=int, default=96, help='Image region of interest size')
     parser.add_argument('--stability_threshold', type=int, default=350, help='Stability threshold for segment detection')
     parser.add_argument('--buffer_size', type=int, default=2, help='Buffer size around peaks to exclude')
-    parser.add_argument('--learning_rate', type=float, default=0.0001, help='Learning rate')
-    parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
+    parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
+    parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--equal', action='store_false', help='Apply histogram equalization')
     parser.add_argument('--early_stop', action='store_false', help='Enable early stopping based on validation loss')
-    
+    parser.add_argument('--patience', type=int, default=5, help='Patience for early stopping')
+    parser.add_argument('--save_best', action='store_false', help='Save the model with the best validation accuracy')
+    parser.add_argument('--temperature', type=float, default=2.0, help='Temperature for distillation')
+    parser.add_argument('--alpha', type=float, default=0.5, help='Weight for the distillation loss component')
     args = parser.parse_args()
     main(args)

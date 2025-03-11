@@ -1,2 +1,0 @@
-# Bacteria
-TWT Project

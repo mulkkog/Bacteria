@@ -1,3 +1,22 @@
-*/
-!*.py
- 
+ # __pycache__ 디렉터리 무시
+__pycache__/
+*.py[cod]
+
+# Visual Studio Code 설정 디렉터리 무시
+.vscode/
+
+# dataset 디렉터리 무시
+dataset/
+
+# models 디렉터리 무시
+models/
+
+# PyInstaller 등 바이너리 빌드 무시
+*.exe
+*.dll
+*.so
+*.dylib
+
+# OS에서 자동 생성되는 파일 무시
+.DS_Store
+Thumbs.db

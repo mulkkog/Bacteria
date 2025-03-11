@@ -410,8 +410,8 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Training Configuration")
     parser.add_argument('--data_path',  type=str, default='/home/jijang/projects/Bacteria/dataset/case_test/case16', help='Base path for dataset')
-    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240822_case16_torch_vivit_early_stop', help='Directory to save models')
-    parser.add_argument('--subfolders', nargs='+', default=['0', '1', '2', '3'], help='List of subfolders for classes')   
+    parser.add_argument('--models_dir', type=str, default='/home/jijang/projects/Bacteria/models/case_test/240823_case16_torch_vivit', help='Directory to save models')
+    parser.add_argument('--subfolders', nargs='+', default=['0', '1', '2', '3', '4'], help='List of subfolders for classes')   
     parser.add_argument('--num_classes', type=int, default=5, help='Number of classes')
     parser.add_argument('--img_frame', type=int, default=300, help='Number of image frames')
     parser.add_argument('--img_roi', type=int, default=96, help='Image region of interest size')
@@ -421,7 +421,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size') 
     parser.add_argument('--patch_size', type=int, default=16, help='Patch size')
-    parser.add_argument('--early_stop', action='store_false', help='Enable early stopping based on validation loss')
+    parser.add_argument('--early_stop', action='store_true', help='Enable early stopping based on validation loss')
     
     args = parser.parse_args()
     main(args)
